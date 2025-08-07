@@ -1,0 +1,277 @@
+---
+title: 使用 Promise 与模态框组件通信
+description: ' '
+tags:
+  - vue
+date: 2025-04-12
+---
+
+模态框是常用的弹出式组件，用于**表单交互**、**信息提示**、**资源查看**等用途。
+
+在轻表单交互中，模态框可以作为承载表单的容器，减少页面跳转的成本，提高操作的连贯性。
+
+## 传统通信方式：Props + Emits
+
+以表单交互为例，父组件与模态框通信最常用的方式是 `props` + `emits`。通过 `props` 向模态框传递表单的初始值和控制状态，
+通过 `emits` 接收模态框的事件反馈（例如表单提交、关闭模态框等）。
+
+以简单的新增数据为例，大致的代码如下：
+
+```vue
+<!--父组件-->
+<template>
+  <div>
+    <button @click="modalVisible = true">新增数据</button>
+    <ModalForm
+      v-model="modalVisible"
+      title="新增数据"
+      @submit="onSubmitFormData"
+    />
+  </div>
+</template>
+<script setup lang="ts">
+  const modalVisible = ref(false)
+  const onSubmitFormData = () => {
+    // ... 刷新页面数据
+    // ... message 提示
+  }
+</script>
+
+<!--模态框表单-->
+<template>
+  <el-dialog v-model="visible" :title="title">
+    <!-- ...表单模板代码 -->
+    <template #footer>
+      <button @click="onCancel">取消</button>
+      <button @click="onSubmit">提交</button>
+    </template>
+  </el-dialog>
+</template>
+<script lang="ts" setup>
+  const props = defineProps < { /* ...props */} > ()
+  const emit = defineEmits < {
+    submit: []
+  } > ()
+
+  const visible = defineModel < boolean > ({required: true})
+
+  const formData = ref({})
+
+  const onCancel = () => {
+    // ...状态清理
+    visible.value = false
+  }
+  const onSubmit = async () => {
+    // ...表单验证
+    // ...表单数据提交
+    visible.value = false
+    emit('submit')
+  }
+</script>
+```
+
+### 复用优化：支持新增与修改
+
+在很多场景中，新增、修改操作往往是成对出现的。例如新增一项列表数据，对列表项数据进行修改。
+对于修改操作，只需要将原有的数据作为表单的初始值传递给模态框即可实现组件的复用。
+
+稍微改造一下上面的代码：
+
+```vue
+<!--父组件-->
+<template>
+  <div>
+    <button @click="onAddData">新增数据</button>
+    <button @click="onEditData(listData[0])">修改第一条数据</button>
+    <ModalForm
+      v-model="modalVisible"
+      :title="title"
+      :initial-form-data="initialFormData"
+      @submit="onSubmitFormData"
+    />
+  </div>
+</template>
+<script setup lang="ts">
+  const listData = ref([])
+  
+  const modalVisible = ref(false)
+  const initialFormData = ref({})
+  const title = ref('')
+  
+  const onAddData = () => {
+    title.value = '新增数据'
+    modalVisible.value = true
+  }
+  
+  const onEditData = (data) => {
+    initialFormData.value = deepClone(data)
+    title.value = '修改数据'
+    modalVisible.value = true
+  }
+  
+  const onSubmitFormData = () => {
+    // ... 刷新页面数据
+    // ... message 提示
+  }
+  
+  onMounted(() => {
+    // ... fetch listData
+  })
+</script>
+
+<!--模态框-->
+<template>
+  <el-dialog v-model="visible" :title="title" @open="onOpen">
+    <!-- ...表单模板代码 -->
+    <template #footer>
+      <button @click="onCancel">取消</button>
+      <button @click="onSubmit">提交</button>
+    </template>
+  </el-dialog>
+</template>
+<script lang="ts" setup>
+  const props = defineProps < { /* ...props */} > ()
+  const emit = defineEmits < {
+    submit: []
+  } > ()
+
+  const visible = defineModel < boolean > ({required: true})
+
+  const formData = ref({})
+
+  const onCancel = () => {
+    // ...状态清理
+    visible.value = false
+  }
+  const onSubmit = async () => {
+    // ...表单验证
+    
+    // 以 formData 是否存在 id 字段来判断新增还是修改操作
+    if (formData.value.id) {
+      // ...调用更新接口提交表单数据
+    }else {
+      // ...调用新增接口提交表单数据 
+    }
+    visible.value = false
+    emit('submit')
+  }
+  
+  const onOpen = () => {
+    formData.value = props.initialFormData
+  }
+</script>
+```
+
+### 复杂场景的痛点：逻辑分散与状态冗余
+
+经过改造，现在模态框表单已经能满足对数据的新增、修改操作了。但是这种实现方式只能应对比较简单创建、修改场景。
+
+在复杂的业务流程中，例如多节点表单、动态权限控制、差异化接口调用等，上述方式会暴露明显缺陷：
+
+- **状态冗余**：父组件需要维护大量与模态框相关的业务状态（如流程节点、权限标识等）
+- **逻辑分散**：完整的业务流程被拆分到父组件和模态框中，父组件负责触发操作，模态框负责判断业务分支并执行具体逻辑
+- **职责混乱**：模态框组件不仅要管理表单状态，还需要处理业务逻辑判断
+
+![](/src/assets/attachment/25-04/modal-form-1.png)
+
+## 优化方案：基于 Promise 的集中式通信
+
+- **模态框聚焦职责**：仅负责表单渲染、验证和数据产出，通过 `defineExpose` 暴露控制方法
+- **父组件集中逻辑**：将完整的业务流程（触发操作 -> 获取数据 -> 执行后续流程）集中在发起函数中
+
+![](/src/assets/attachment/25-04/modal-form-2.png)
+
+大致的实现代码如下：
+
+```vue
+<!--父组件-->
+<template>
+  <div>
+    <button @click="onEditData(listData[0])">修改第一条数据</button>
+    <ModalForm ref="modalRef" />
+  </div>
+</template>
+<script setup lang="ts">
+  import { tryit } from 'radash'
+
+  const modalRef = ref()
+  const listData = ref([])
+
+  const onEditData = async (listItem) => {
+    // 设置模态框上下文并打开模态框
+    modalRef.value.setContext({ formData: deepClone(listItem), title: '修改数据' })
+    modalRef.value.setVisible(true)
+    // 等待模态框产出数据
+    const [ cancel, formData ] = await tryit(modalRef.value.submit)()
+    if (cancel) return
+    // 集中处理后续业务逻辑
+    // ...表单数据提交
+    // ...列表刷新
+    // ...message 提示操作结果
+  }
+</script>
+
+<!--模态框组件-->
+<template
+<el-dialog v-model="visible" :title="title" @close="onClose">
+  <!-- ...表单模板代码 -->
+  <template #footer>
+    <button @click="resolver?.reject(true)">取消</button>
+    <button @click="onSubmit">提交</button>
+  </template>
+</el-dialog>
+</template>
+<script setup lang="ts">
+  import { useToggle } from '@vueuse/core'
+
+  const [ visible, setVisible ] = useToggle(false)
+
+  const title = ref('')
+  const formData = ref({})
+  
+  // ...其他响应式状态
+
+  const setContext = (ctx) => {
+    formData.value = ctx.formData ?? {}
+    title.value = ctx.title ?? ''
+    // ...其他必要的状态赋值
+  }
+
+  let resolver: PromiseWithResolvers<any>
+  const submit = () => {
+    resolver = Promise.withResolvers<any>()
+    return resolver.promise
+  }
+  
+  const onSubmit = async () => {
+    // ...表单验证
+    
+    resolver.resolve(formData.value)
+  }
+  
+  const onClose = () => {
+    resolver?.reject(true)
+    // ...其他状态清理、初始化
+  }
+
+  defineExpose({
+    setVisible,
+    setContext,
+    submit
+  })
+</script>
+```
+
+> `Promise.withResolvers` 是 ES2024 标准中新增的特性
+> https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers
+
+> `tryit` 用于将函数转换为**错误优先**函数
+> https://radash-docs.vercel.app/docs/async/tryit
+
+## 总结
+
+基于 Promise 的模态框通信模式可以总结为以下几点：
+
+1. **逻辑集中化**：将完整的业务流程收敛到父组件的操作函数中，避免跨组件逻辑拆分
+2. **职责清晰化**：模态框专注于表单交互，父组件专注于业务逻辑，符合单一职责原则
+3. **代码可读性**：通过异步等待直观表达 “打开模态框 -> 等待模态框操作结果 -> 执行后续逻辑”的流程关系
