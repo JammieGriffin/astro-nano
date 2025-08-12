@@ -172,14 +172,14 @@ date: 2025-04-12
 - **逻辑分散**：完整的业务流程被拆分到父组件和模态框中，父组件负责触发操作，模态框负责判断业务分支并执行具体逻辑
 - **职责混乱**：模态框组件不仅要管理表单状态，还需要处理业务逻辑判断
 
-![](/src/assets/attachment/25-04/modal-form-1.png)
+![](@assets/attachment/25-04/modal-form-1.png)
 
 ## 优化方案：基于 Promise 的集中式通信
 
 - **模态框聚焦职责**：仅负责表单渲染、验证和数据产出，通过 `defineExpose` 暴露控制方法
 - **父组件集中逻辑**：将完整的业务流程（触发操作 -> 获取数据 -> 执行后续流程）集中在发起函数中
 
-![](/src/assets/attachment/25-04/modal-form-2.png)
+![](@assets/attachment/25-04/modal-form-2.png)
 
 大致的实现代码如下：
 

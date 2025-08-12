@@ -21,6 +21,6 @@ export const BLOG: Metadata = {
 export const SOCIALS: Socials = [
   {
     NAME: "github",
-    HREF: "https://github.com/markhorn-dev"
+    HREF: "https://github.com/JammieGriffin"
   }
 ];
