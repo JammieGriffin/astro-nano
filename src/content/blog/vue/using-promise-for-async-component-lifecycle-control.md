@@ -4,7 +4,6 @@ description: ' '
 tags:
   - vue
 date: '2025-08-12'
-draft: true
 ---
 
 `defineAsyncComponent` 是 Vue3 中异步导入组件的 API。
@@ -28,18 +27,26 @@ draft: true
 <!--异步导入的组件-->
 <template>
   <div>
-  <!-- 组件模板 -->
+    <!-- 组件模板 -->
   </div>
 </template>
 <script setup>
-  const emit = defineEmits<{
+  const emit = defineEmits < {
     mounted: []
-  }>()
-  
+  } > ()
+
   //  ... 组件逻辑
-  
+
+  const dosomething = () => {
+    // ... do something
+  }
+
   onMounted(() => {
     emit('mounted')
+  })
+
+  defineExpose({
+    dosomething
   })
 </script>
 
@@ -47,7 +54,37 @@ draft: true
 <template>
   <div>
     <!-- 其它模板内容 -->
-    <MyComponnet ref="asyncComponentRef" @mounted=""
+    <MyComponnet
+      ref="myCompRef"
+      @mounted="myCompResolver.resolve(myCompRef)"
+    />
+    <button @click="onClick">
+      call MyComponent do something
+    </button>
   </div>
 </template>
+<script setup>
+  const MyComponent = defineAsyncComponent(
+    () => import('/path/to/MyComponent.vue')
+  )
+  const myCompRef = ref()
+  const myCompResolver = Promise.withResolvers()
+
+  const onClick = async () => {
+    const myComp = await myCompResolver.promise
+    myComp.dosomething()
+  }
+</script>
 ```
+
+在上面的代码中，我们通过 `Promise.withResolvers()` 创建了一个可以手动控制的 `Promise`，在异步组件的 `onMounted` 钩子中发出 `mounted` 事件，
+父组件监听这个事件并兑现 `Promise`。在调用异步组件实例方法前，我们使用 `await` 等待这个 `Promise` 被兑现，确保异步组件已经挂载。
+这样就可以安全地调用异步组件实例的方法了。
+
+然而这种方式需要在异步组件内部写 `emit` 事件，在`onMounted`、`onUnmounted` 钩子回调中触发相应的事件，写多了会显得有些繁琐。
+
+有没有更简洁的方式呢？
+
+实际上
+
+
