@@ -6,6 +6,12 @@ tags:
 date: 2025-04-12
 ---
 
+import Link from '@components/Link.astro'
+export const href = {
+  promiseWithResolvers: 'https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers',
+  tryit: 'https://radash-docs.vercel.app/docs/async/tryit'
+}
+
 模态框是常用的弹出式组件，用于**表单交互**、**信息提示**、**资源查看**等用途。
 
 在轻表单交互中，模态框可以作为承载表单的容器，减少页面跳转的成本，提高操作的连贯性。
@@ -93,27 +99,27 @@ date: 2025-04-12
 </template>
 <script setup lang="ts">
   const listData = ref([])
-  
+
   const modalVisible = ref(false)
   const initialFormData = ref({})
   const title = ref('')
-  
+
   const onAddData = () => {
     title.value = '新增数据'
     modalVisible.value = true
   }
-  
+
   const onEditData = (data) => {
     initialFormData.value = deepClone(data)
     title.value = '修改数据'
     modalVisible.value = true
   }
-  
+
   const onSubmitFormData = () => {
     // ... 刷新页面数据
     // ... message 提示
   }
-  
+
   onMounted(() => {
     // ... fetch listData
   })
@@ -145,17 +151,17 @@ date: 2025-04-12
   }
   const onSubmit = async () => {
     // ...表单验证
-    
+
     // 以 formData 是否存在 id 字段来判断新增还是修改操作
     if (formData.value.id) {
       // ...调用更新接口提交表单数据
     }else {
-      // ...调用新增接口提交表单数据 
+      // ...调用新增接口提交表单数据
     }
     visible.value = false
     emit('submit')
   }
-  
+
   const onOpen = () => {
     formData.value = props.initialFormData
   }
@@ -228,7 +234,7 @@ date: 2025-04-12
 
   const title = ref('')
   const formData = ref({})
-  
+
   // ...其他响应式状态
 
   const setContext = (ctx) => {
@@ -242,13 +248,13 @@ date: 2025-04-12
     resolver = Promise.withResolvers<any>()
     return resolver.promise
   }
-  
+
   const onSubmit = async () => {
     // ...表单验证
-    
+
     resolver.resolve(formData.value)
   }
-  
+
   const onClose = () => {
     resolver?.reject(true)
     // ...其他状态清理、初始化
@@ -263,10 +269,10 @@ date: 2025-04-12
 ```
 
 > `Promise.withResolvers` 是 ES2024 标准中新增的特性
-> https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers
+> <Link href={href.promiseWithResolvers} external={true}>{href.promiseWithResolvers}</Link>
 
 > `tryit` 用于将函数转换为**错误优先**函数
-> https://radash-docs.vercel.app/docs/async/tryit
+> <Link href={href.tryit} external={true}>{href.tryit}</Link>
 
 ## 总结
 
