@@ -1,0 +1,234 @@
+---
+title: 'Vue3 中异步组件方法调用的安全实践：利用内置生命周期事件简化逻辑'
+description: ' '
+tags:
+  - vue
+date: '2025-08-12'
+---
+
+import Link from '@components/Link.astro'
+
+export const href = {
+  mdnImport: 'https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Operators/import',
+  sourceCodeVOn: 'https://github.com/vuejs/core/blob/main/packages/compiler-core/src/transforms/vOn.ts#L46',
+  vuePlayground: 'https://play.vuejs.org/#__PROD__eNp9Ustu2zAQ/JUtL7KBVELRnlzZaFoEaAv0gbZAL7wI0tphQi0FPhQHgv49SzJObORxI3dmuDO7nMT5MJRjQLEStWutGjw49GHYSFL9YKyHCTrcKsJzd0vtF8NFQvIww9aaHgrWFh+PyBa3J5gkSa0h5yFqYf3sa4vFEtYbyI8sirKKSLRVLJePD/Rux3pusCi+otYG/huruzcFUzLBUNT9MIE8dkzNr06SIGrLsdEBuVyk5slPznKvYK+zpLrKc+AJ8MVjP+jGI98A6st3m2lKPua5rviWqoqG4GF825sO9VoKxqWAKoMp9SeOsupzFyac+Lyn1tVRK3EmvONMW7Urr5wh3k5KIUXLQqXR/hq84sxSrHK+iDU8k5vvqeZtwLNDvb3E9vqZ+pXbx5oUvy06tCNK8YD5xu7QZ/ji70/c8/kB5KBBM/sV8A86o0P0mGmfA3Vs+4iX3H5LG1e0++cu9h7JHUJFo5E5J74UPMA4s5eiP9p9X35IOt4lT/Hwj55879e23KkxHQCa9FHizBNQZeR0VfMdTHUZHw==',
+  sourceCodeVNode: 'https://github.com/vuejs/core/blob/main/packages/runtime-core/src/vnode.ts#L126',
+  vueDocsRenderFunction: 'https://cn.vuejs.org/guide/extras/render-function#creating-vnodes',
+  blameVNode: 'https://github.com/vuejs/core/blame/main/packages/runtime-core/src/vnode.ts#L133',
+  blameVOn: 'https://github.com/vuejs/core/blame/main/packages/compiler-core/src/transforms/vOn.ts#L51'
+}
+
+## 异步组件的特性和调用难题
+
+`defineAsyncComponent` 是 Vue3 中异步导入组件的 API。
+常见的用法是与 <Link href={href.mdnImport} external={true}>ES 模块动态导入</Link> 搭配使用。
+
+通过 `defineAsyncComponent`，我们可以实现组件的按需加载、远程加载、懒加载等功能；在与 `import()` 动态导入搭配使用时，类似
+Vite 和 Webpack 这类
+构建工具在打包时会将动态导入的组件代码作为分割点分割成独立的 JS chunk，减少初始加载时的资源体积。
+
+由于使用 `defineAsyncComponent` 导入的组件是异步加载的，组件的挂载时机会受到诸如网络延迟等因素的影响，在通过 `ref`
+引用调用异步组件实例暴露的方法时，可能因组件未完成挂载而触发 `Cannot read properties of undefined` 之类的错误。
+
+因此，**确保组件挂载后再调用组件实例方法**是关键问题。
+
+## 通过自定义 `emit` 事件控制调用时机
+
+核心思路是在父组件创建一个 `Promise` 去控制异步组件实例方法的调用时机，在异步组件挂载后兑现这个 `Promise`；而在调用异步组件实例方法的代码前等待这个
+`Promise` 被兑现再继续执行。
+
+基于这个思路，我们可以在在异步组件的 `onMounted` 钩子函数中，使用 `emit` 发出一个事件，让父组件去监听这个事件并兑现`Promise`。
+示例代码如下：
+
+```vue
+<!--异步导入的组件-->
+<template>
+  <div>
+    <!-- 组件模板 -->
+  </div>
+</template>
+<script setup>
+  const emit = defineEmits < {
+    mounted: []
+  } > ()
+
+  //  ... 组件逻辑
+
+  const doSomething = () => {
+    // ... 具体逻辑
+  }
+
+  onMounted(() => {
+    emit('mounted')
+  })
+
+  defineExpose({
+    doSomething
+  })
+</script>
+
+<!--父组件-->
+<template>
+  <div>
+    <!-- 其它模板内容 -->
+    <MyComponent
+      ref="myCompRef"
+      @mounted="myCompResolver.resolve(myCompRef)"
+    />
+    <button @click="onClick">
+      call MyComponent do something
+    </button>
+  </div>
+</template>
+<script setup>
+  const MyComponent = defineAsyncComponent(
+    () => import('/path/to/MyComponent.vue')
+  )
+  const myCompRef = ref()
+  const myCompResolver = Promise.withResolvers()
+
+  const onClick = async () => {
+    const myComp = await myCompResolver.promise
+    myComp.doSomething()
+  }
+</script>
+```
+
+在上述代码中，我们通过 `Promise.withResolvers()` 创建了一个可以手动控制的 `Promise`。在异步组件挂载后，通过 `emit` 触发 `mounted` 事件，
+父组件监听这个事件并兑现 `Promise`。在调用异步组件实例方法前，通过 `await` 等待这个 `Promise` 被兑现，确保异步组件已经挂载。
+这样就可以安全地调用异步组件实例的方法了。
+
+然而这种方式需要在异步组件内部显式编写 `emit` 事件逻辑，在`onMounted`、`onUnmounted` 钩子回调中触发相应的事件，多次使用时会显得有些繁琐。
+
+## 通过 Vue 内置生命周期事件监听
+
+实际上 Vue 已经内置了这些组件生命周期事件的监听能力，我们可以通过 `@vue:` + 生命周期名称的形式直接监听子组件的生命周期事件，例如
+`@vue:mounted`、`@vue:unmounted` 等。基于此，我们可以直接在父组件中监听异步组件的生命周期事件，而不需要在异步组件内部写 `emit` 事件。
+
+优化后的代码如下：
+
+```vue
+<!--异步导入的组件-->
+<template>
+  <div>
+    <!-- 组件模板 -->
+  </div>
+</template>
+<script setup>
+  //  ... 组件逻辑
+
+  const doSomething = () => {
+    // ... do something
+  }
+
+  defineExpose({
+    doSomething
+  })
+</script>
+
+<!--父组件-->
+<template>
+  <div>
+    <!-- 其它模板内容 -->
+    <MyComponent
+      ref="myCompRef"
+      @vue:mounted="myCompResolver.resolve(myCompRef)"
+    />
+    <button @click="onClick">
+      call MyComponent do something
+    </button>
+  </div>
+</template>
+<script setup>
+  const MyComponent = defineAsyncComponent(
+    () => import('/path/to/MyComponent.vue')
+  )
+  const myCompRef = ref()
+  const myCompResolver = Promise.withResolvers()
+
+  const onClick = async () => {
+    const myComp = await myCompResolver.promise
+    myComp.doSomething()
+  }
+</script>
+```
+
+改造后的代码移除了异步组件内部的挂载事件 `emit` 逻辑，直接在父组件中通过 `@vue:mounted` 监听异步组件的挂载事件，实现了更简洁的写法。
+
+## `@vue:` 事件的编译逻辑和安全性
+
+值得注意的是，Vue 的官方文档并没有明确提及这种监听子组件生命周期的方式，但是 Vue 源码中确实有相关的实现。
+
+在 SFC 中，组件事件绑定是通过 `v-on` 指令实现的，因此我们可以从 `v-on` 指令的编译逻辑入手分析：
+
+在编译器对 vOn 指令转换的源码中，对于事件名称以 `vue:` 开头的事件名称，会特殊处理为 `vnode-` 前缀：
+
+```ts
+if (rawName.startsWith('vue:')) {
+  rawName = `vnode-${rawName.slice(4)}`
+}
+```
+
+之后将事件名称转换为 camelCase 格式，例如 `@vue:mounted` 会被编译器编译为 `onVnodeMounted`：
+
+```typescript
+const eventString =
+  node.tagType !== ElementTypes.ELEMENT ||
+  rawName.startsWith('vnode') ||
+  !/[A-Z]/.test(rawName)
+    ? toHandlerKey(camelize(rawName))
+    : `on:${rawName}`
+eventName = createSimpleExpression(eventString, true, arg.loc)
+```
+
+在 <Link href={href.vuePlayground} external={true}>Vue 演练场</Link> 中查看编译结果可以验证这一点：`@vue:mounted` 被编译为 `onVnodeMounted`。
+
+![](@assets/attachment/25-08/vue-playground-sourcemap.png)
+
+也就是说，以 `vue:` 开头的事件会被编译为 `VNode` 的相关事件，进一步查看 <Link href={href.sourceCodeVNode} external={true}> `VNode` 源码 </Link>，
+可以找到确实是有相关事件的定义：
+
+```ts
+export type VNodeProps = {
+  key?: PropertyKey
+  ref?: VNodeRef
+  ref_for?: boolean
+  ref_key?: string
+
+  // vnode hooks
+  onVnodeBeforeMount?: VNodeMountHook | VNodeMountHook[]
+  onVnodeMounted?: VNodeMountHook | VNodeMountHook[]
+  onVnodeBeforeUpdate?: VNodeUpdateHook | VNodeUpdateHook[]
+  onVnodeUpdated?: VNodeUpdateHook | VNodeUpdateHook[]
+  onVnodeBeforeUnmount?: VNodeMountHook | VNodeMountHook[]
+  onVnodeUnmounted?: VNodeMountHook | VNodeMountHook[]
+}
+```
+
+可以看到 `@vue:` 支持监听的生命周期事件有：`beforeMount`、`mounted`、`beforeUpdate`、`updated`、`beforeUnmount`、`unmounted`；
+而 `activated` 和 `deactivated` 这两个事件是不支持的。
+
+在 Vue 文档的 **渲染函数 & JSX** 这一章节中有提醒到：
+> 完整的 `VNode` 接口包含其他内部属性，但是强烈建议避免使用这些没有在这里列举出的属性。这样能够避免因内部属性变更而导致的不兼容性问题。
+
+显然，这些 `VNode` 生命周期事件属于没有列举出的内部属性，那么这些生命周期事件是否可以安全使用？
+
+查找了 VNode 源码变更记录以及 `v-on` 指令源码变更记录,`VNode` 生命周期事件的接口早在 2020 年 3 月就已经定义了，
+至今没有修改过，而 `v-on` 对 `@vue:` 开头的事件的处理逻辑是在 2022 年 8 月提交的，也是至今都没有修改。
+
+尽管官方文档并没有提及这一用法，但是相关源码已经好几年没有发生过变动，接口稳定性已得到验证，可以安全使用。
+
+## 总结
+
+在 Vue3 中调用异步组件方法时，需确保组件完成挂载。基础方案通过自定义事件和 Promise 控制时机，但存在代码冗余问题；
+更优方案是利用 Vue 内置的 `@vue:` 前缀监听生命周期事件（如 `@vue:mounted`），无需组件内部额外逻辑，实现简洁且安全的调用。
+
+## 相关链接
+
+> - <Link href={href.sourceCodeVOn} external={true}> `v-on` 指令转换源码 </Link>
+> - <Link href={href.blameVOn} external={true}> `v-on` 指令转换源码变更记录 </Link>
+> - <Link href={href.sourceCodeVNode} external={true}> `VNode` 源码 </Link>
+> - <Link href={href.vueDocsRenderFunction} external={true}> Vue 文档：渲染函数 & JSX </Link>
+> - <Link href={href.blameVNode} external={true}> `VNode` 源码变更记录 </Link>
+
+
