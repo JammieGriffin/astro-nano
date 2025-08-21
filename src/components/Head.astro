@@ -30,10 +30,10 @@ const { title, description, image = "/nano.png" } = Astro.props;
 <meta name="generator" content={Astro.generator} />
 
 <!-- Font preloads -->
-<link rel="preload" href={inter400} as="font" type="font/woff2" crossorigin/>
-<link rel="preload" href={inter600} as="font" type="font/woff2" crossorigin/>
-<link rel="preload" href={lora400} as="font" type="font/woff2" crossorigin/>
-<link rel="preload" href={lora600} as="font" type="font/woff2" crossorigin/>
+<link rel="preload" href={inter400} as="font" type="font/woff2" crossorigin />
+<link rel="preload" href={inter600} as="font" type="font/woff2" crossorigin />
+<link rel="preload" href={lora400} as="font" type="font/woff2" crossorigin />
+<link rel="preload" href={lora600} as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="/fonts/AnnotationMono-Regular.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="/fonts/AnnotationMono-Bold.woff2" as="font" type="font/woff2" crossorigin />
 
@@ -59,7 +59,7 @@ const { title, description, image = "/nano.png" } = Astro.props;
 <meta property="twitter:description" content={description} />
 <meta property="twitter:image" content={new URL(image, Astro.url)} />
 
-<ClientRouter  />
+<ClientRouter />
 
 <script>
   import type { TransitionBeforeSwapEvent } from "astro:transitions/client";
@@ -104,11 +104,11 @@ const { title, description, image = "/nano.png" } = Astro.props;
 
     window.matchMedia("(prefers-color-scheme: dark)")
       .addEventListener("change", event => {
-        if (localStorage.theme === "system") {
-          toggleTheme(event.matches);
+          if (localStorage.theme === "system") {
+            toggleTheme(event.matches);
+          }
         }
-      }
-    );
+      );
 
     document.addEventListener("scroll", onScroll);
   }
@@ -139,7 +139,7 @@ const { title, description, image = "/nano.png" } = Astro.props;
     });
   }
 
-function toggleTheme(dark) {
+  function toggleTheme(dark) {
     const css = document.createElement("style");
 
     css.appendChild(
@@ -163,7 +163,7 @@ function toggleTheme(dark) {
       document.documentElement.classList.remove("dark");
     }
 
-  window.getComputedStyle(css).opacity;
+    window.getComputedStyle(css).opacity;
     document.head.removeChild(css);
   }
 
